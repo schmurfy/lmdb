@@ -432,6 +432,16 @@ static VALUE database_stat(VALUE self) {
         return stat2hash(&stat);
 }
 
+static VALUE database_flags_(VALUE self) {
+        DATABASE(self, database);
+        if (!active_txn(database->env))
+                return call_with_transaction(database->env, self, "flags", 0, 0, MDB_RDONLY);
+
+        unsigned int flags;
+        check(mdb_dbi_flags(need_txn(database->env), database->dbi, &flags));
+        return INT2NUM(flags);
+}
+
 static VALUE database_drop(VALUE self) {
         DATABASE(self, database);
         if (!active_txn(database->env))
@@ -738,6 +748,7 @@ void Init_lmdb_ext() {
         cDatabase = rb_define_class_under(mLMDB, "Database", rb_cObject);
         rb_undef_method(rb_singleton_class(cDatabase), "new");
         rb_define_method(cDatabase, "stat", database_stat, 0);
+        rb_define_method(cDatabase, "flags", database_flags_, 0);
         rb_define_method(cDatabase, "drop", database_drop, 0);
         rb_define_method(cDatabase, "clear", database_clear, 0);
         rb_define_method(cDatabase, "get", database_get, 1);
