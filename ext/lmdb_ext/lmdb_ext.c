@@ -656,6 +656,18 @@ static VALUE cursor_get(VALUE self) {
         return rb_assoc_new(rb_str_new(key.mv_data, key.mv_size), rb_str_new(value.mv_data, value.mv_size));
 }
 
+static VALUE cursor_get_multiple(VALUE self) {
+        CURSOR(self, cursor);
+
+        MDB_val key, value;
+        int ret = mdb_cursor_get(cursor->cur, &key, &value, MDB_GET_MULTIPLE);
+        if (ret == MDB_NOTFOUND)
+          return Qnil;
+        
+        check(ret);
+        return rb_assoc_new(rb_str_new(key.mv_data, key.mv_size), rb_str_new(value.mv_data, value.mv_size));
+}
+
 #define METHOD cursor_put_flags
 #define FILE "cursor_put_flags.h"
 #include "flag_parser.h"
@@ -765,6 +777,7 @@ void Init_lmdb_ext() {
         rb_undef_method(rb_singleton_class(cCursor), "new");
         rb_define_method(cCursor, "close", cursor_close, 0);
         rb_define_method(cCursor, "get", cursor_get, 0);
+        rb_define_method(cCursor, "get_multiple", cursor_get_multiple, 0);
         rb_define_method(cCursor, "first", cursor_first, 0);
         rb_define_method(cCursor, "last", cursor_last, 0);
         rb_define_method(cCursor, "next", cursor_next, 0);
