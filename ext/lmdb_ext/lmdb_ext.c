@@ -620,8 +620,8 @@ static VALUE cursor_set(VALUE self, VALUE vkey) {
         key.mv_size = RSTRING_LEN(vkey);
         key.mv_data = StringValuePtr(vkey);
 
-        check(mdb_cursor_get(cursor->cur, &key, &value, MDB_SET_KEY));
-        return rb_assoc_new(rb_str_new(key.mv_data, key.mv_size), rb_str_new(value.mv_data, value.mv_size));
+        check(mdb_cursor_get(cursor->cur, &key, &value, MDB_SET));
+        return Qnil;
 }
 
 static VALUE cursor_set_range(VALUE self, VALUE vkey) {
