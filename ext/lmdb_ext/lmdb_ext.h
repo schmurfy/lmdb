@@ -3,6 +3,7 @@
 
 #include "ruby.h"
 #include "lmdb.h"
+#include <stdbool.h>
 
 // Ruby 1.8 compatibility
 #ifndef SIZET2NUM

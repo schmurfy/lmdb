@@ -475,6 +475,143 @@ static VALUE database_get(VALUE self, VALUE vkey) {
         return rb_str_new(value.mv_data, value.mv_size);
 }
 
+static VALUE database_get_bulk_metrics(int argc, VALUE* argv, VALUE vself)
+{
+  int timepartsize;
+  time_t from, to;
+  VALUE vkey_start, vkey_end, vtimepartsize, vfrom, vto, vhash;
+  MDB_cursor* cur;
+  MDB_val key, value;
+  
+  DATABASE(vself, database);
+  if (!active_txn(database->env)){
+    rb_raise(cError, "Transaction required");
+  }
+  
+  rb_scan_args(argc, argv, "5", &vkey_start, &vkey_end, &vtimepartsize, &vfrom, &vto);
+  
+  timepartsize = FIX2INT(vtimepartsize);
+  from = FIX2INT(vfrom);
+  to = FIX2INT(vto);
+  
+  vhash = rb_hash_new();
+  
+  // use a cursor to load the data
+  check(mdb_cursor_open(need_txn(database->env), database->dbi, &cur));
+  
+  // move the cursor to the first record
+  key.mv_size = RSTRING_LEN(vkey_start);
+  key.mv_data = StringValuePtr(vkey_start);
+  check(mdb_cursor_get(cur, &key, &value, MDB_SET_KEY));
+  
+  // and now iterate over every records in between
+  while(1) {
+    const uint8_t *p;
+    const uint8_t *end;
+    const char *str_key;
+    const char *str_time;
+    
+    check(mdb_cursor_get(cur, &key, &value, MDB_GET_MULTIPLE));
+    
+    p = (const uint8_t*) value.mv_data;
+    end = (const uint8_t*)(value.mv_data + value.mv_size);
+    str_key = key.mv_data;
+    str_time = strrchr(str_key, ':');
+    
+    if( str_time != NULL ){
+      // printf("\nscanning %*s (partsize: %d) ...\n", key.mv_size - 1, key.mv_data, timepartsize);
+      time_t row_start_time = atol(str_time + 1);
+      struct tm *tm_timestamp;
+      // VALUE vkey = rb_str_new(key.mv_data, key.mv_size);
+      
+      // extract every points stored
+      while(p < end){
+        double value;
+        bool first_value = false;
+        VALUE voffset;
+        size_t len;
+        time_t timeoff = 0;
+        char buffer[30];
+        
+        if( timepartsize == 1 ){
+          // uint8_t mask = 1 << (timepartsize*8 - 1);
+          // timeoff = *((uint8_t *)p);
+          // first_value = (timeoff & mask) > 0;
+          
+        } else if( timepartsize == 2){
+          uint16_t mask = 1 << (timepartsize*8 - 1);
+          
+          timeoff = ntohs(*((uint16_t *)p));
+          first_value = (timeoff & mask) > 0;
+          timeoff &= ~mask;
+        
+        } else if( timepartsize == 4){
+          // uint32_t mask = 1 << (timepartsize*8 - 1);
+          // first_value = (timeoff & mask) > 0;
+          // timeoff = *((uint32_t *)p);
+          
+        }
+        
+        p+= timepartsize;
+        
+        timeoff += row_start_time;
+        
+        if( (timeoff >= from) && (timeoff <= to)  ){
+          tm_timestamp = gmtime(&timeoff);
+          len = strftime(buffer, sizeof(buffer) - 1, "%Y-%m-%dT%H:%M:%SZ", tm_timestamp);
+          voffset = rb_str_new(buffer, len);
+          
+          
+          // printf("mask = %#x\n", ~(1 << (timepartsize*8 - 1)));
+          
+          
+          // now extract the double, assume little endian
+          ((uint8_t*)&value)[7] = p[0];
+          ((uint8_t*)&value)[6] = p[1];
+          ((uint8_t*)&value)[5] = p[2];
+          ((uint8_t*)&value)[4] = p[3];
+          ((uint8_t*)&value)[3] = p[4];
+          ((uint8_t*)&value)[2] = p[5];
+          ((uint8_t*)&value)[1] = p[6];
+          ((uint8_t*)&value)[0] = p[7];
+          
+          // printf("got one %ld -> %ld %s, value: %f\n", row_start_time, timeoff, buffer, value);
+          
+          if( first_value ){
+            rb_hash_aset(vhash, voffset, rb_ary_new3(1, DBL2NUM(value)));
+          }
+          else {
+            rb_hash_aset(vhash, voffset, DBL2NUM(value));
+          }
+        }
+        
+        p+= 8;
+      }
+      
+    }
+    else {
+      
+      // invalid key
+      printf("invalid key: %s\n", str_key);
+      continue;
+    }
+    
+    // break if this was the last wanted key
+    if( !strncmp(key.mv_data, StringValuePtr(vkey_end), key.mv_size) ){
+      // printf("breaking on last wanted value: %s\n", StringValuePtr(vkey_end));
+      break;
+    }
+    
+    // break if there is no keys left
+    if( mdb_cursor_get(cur, &key, &value, MDB_NEXT) == MDB_NOTFOUND ){
+      // printf("breaking at the end of dataset\n");
+      break;
+    }
+  }
+  
+  return vhash;
+}
+
 #define METHOD database_put_flags
 #define FILE "put_flags.h"
 #include "flag_parser.h"
@@ -764,6 +901,7 @@ void Init_lmdb_ext() {
         rb_define_method(cDatabase, "drop", database_drop, 0);
         rb_define_method(cDatabase, "clear", database_clear, 0);
         rb_define_method(cDatabase, "get", database_get, 1);
+        rb_define_method(cDatabase, "get_bulk_metrics", database_get_bulk_metrics, -1);
         rb_define_method(cDatabase, "put", database_put, -1);
         rb_define_method(cDatabase, "delete", database_delete, -1);
         rb_define_method(cDatabase, "cursor", database_cursor, 0);
