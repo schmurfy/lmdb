@@ -813,24 +813,37 @@ static VALUE cursor_get_multiple(VALUE self) {
 
 static VALUE cursor_put(int argc, VALUE* argv, VALUE self) {
         CURSOR(self, cursor);
-
-        VALUE vkey, vval, option_hash;
+        
+        ID elsize_id = rb_intern("elsize");
+        VALUE vkey, vval, velsize, option_hash;
         rb_scan_args(argc, argv, "2:", &vkey, &vval, &option_hash);
 
         int flags = 0;
-        if (!NIL_P(option_hash))
+        if (!NIL_P(option_hash)){
+                velsize = rb_hash_delete(option_hash, ID2SYM(elsize_id));
                 rb_hash_foreach(option_hash, cursor_put_flags, (VALUE)&flags);
+        }
 
         vkey = StringValue(vkey);
         vval = StringValue(vval);
 
-        MDB_val key, value;
+        MDB_val key, values[2];
+        
         key.mv_size = RSTRING_LEN(vkey);
         key.mv_data = RSTRING_PTR(vkey);
-        value.mv_size = RSTRING_LEN(vval);
-        value.mv_data = RSTRING_PTR(vval);
+        
+        if( flags & MDB_MULTIPLE ){
+                Check_Type(velsize, T_FIXNUM);
+                values[0].mv_size = FIX2INT(velsize);
+                values[0].mv_data = RSTRING_PTR(vval);
+                values[1].mv_size = RSTRING_LEN(vval) / values[0].mv_size;
+        }
+        else {
+                values[0].mv_size = RSTRING_LEN(vval);
+                values[0].mv_data = RSTRING_PTR(vval);
+        }
 
-        check(mdb_cursor_put(cursor->cur, &key, &value, flags));
+        check(mdb_cursor_put(cursor->cur, &key, values, flags));
         return Qnil;
 }
 
