@@ -508,19 +508,21 @@ static VALUE database_get(VALUE self, VALUE vkey) {
 
 static VALUE database_get_bulk_metrics(int argc, VALUE* argv, VALUE vself)
 {
-  int timepartsize;
+  int timepartsize, rc;
   time_t from, to;
-  VALUE vkey_start, vkey_end, vtimepartsize, vfrom, vto, vhash;
+  VALUE vkey_prefix, vkey_start, vkey_end, vtimepartsize, vfrom, vto, vhash;
   MDB_cursor* cur;
   MDB_val key, value;
+  const char *key_prefix;
   
   DATABASE(vself, database);
   if (!active_txn(database->env)){
     rb_raise(cError, "Transaction required");
   }
   
-  rb_scan_args(argc, argv, "5", &vkey_start, &vkey_end, &vtimepartsize, &vfrom, &vto);
+  rb_scan_args(argc, argv, "6", &vkey_prefix, &vkey_start, &vkey_end, &vtimepartsize, &vfrom, &vto);
   
+  key_prefix = StringValueCStr(vkey_prefix);
   timepartsize = FIX2INT(vtimepartsize);
   from = FIX2INT(vfrom);
   to = FIX2INT(vto);
@@ -533,7 +535,16 @@ static VALUE database_get_bulk_metrics(int argc, VALUE* argv, VALUE vself)
   // move the cursor to the first record
   key.mv_size = RSTRING_LEN(vkey_start);
   key.mv_data = StringValuePtr(vkey_start);
-  check(mdb_cursor_get(cur, &key, &value, MDB_SET_KEY));
+  
+  // try to put the cursor exactly where we want it
+  rc = mdb_cursor_get(cur, &key, &value, MDB_SET);
+  if( rc == MDB_NOTFOUND ){
+    // printf("set by RANGE (key: %s)\n", key.mv_data);
+    // positon the cursor by prefix and scan the while namespace
+    key.mv_size = strlen(key_prefix);
+    key.mv_data = (void *)key_prefix;
+    check(mdb_cursor_get(cur, &key, &value, MDB_SET_RANGE));
+  }
   
   // and now iterate over every records in between
   while(1) {
@@ -606,7 +617,7 @@ static VALUE database_get_bulk_metrics(int argc, VALUE* argv, VALUE vself)
           ((uint8_t*)&value)[1] = p[6];
           ((uint8_t*)&value)[0] = p[7];
           
-          // printf("got one %ld -> %ld %s, value: %f\n", row_start_time, timeoff, buffer, value);
+          // printf("got one %ld -> %ld %.*s %s, value: %f\n", row_start_time, timeoff, (int)key.mv_size, key.mv_data, buffer, value);
           
           if( first_value ){
             rb_hash_aset(vhash, voffset, rb_ary_new3(1, DBL2NUM(value)));
@@ -627,9 +638,15 @@ static VALUE database_get_bulk_metrics(int argc, VALUE* argv, VALUE vself)
       continue;
     }
     
+    // break if we left the namespace
+    if( strncmp(key_prefix, key.mv_data, strlen(key_prefix)) ){
+      // printf("breaking because we left the namespace: %s %.*s\n", key_prefix, (int)key.mv_size, key.mv_data);
+      break;
+    }
+    
     // break if this was the last wanted key
     if( !strncmp(key.mv_data, StringValuePtr(vkey_end), key.mv_size) ){
-      // printf("breaking on last wanted value: %s\n", StringValuePtr(vkey_end));
+      // printf("breaking on last wanted value: %s\n", StringValueCStr(vkey_end));
       break;
     }
     
