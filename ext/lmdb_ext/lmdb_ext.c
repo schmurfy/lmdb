@@ -397,21 +397,52 @@ static void database_mark(Database* database) {
 #undef METHOD
 #undef FILE
 
+static int metrics_compare(const MDB_val *a, const MDB_val *b)
+{
+    char buff1[11], buff2[11];
+    int diff;
+    ssize_t len_diff;
+    unsigned int len;
+    
+    memcpy(buff1, a->mv_data, a->mv_size);
+    memcpy(buff2, b->mv_data, b->mv_size);
+    
+    buff1[0] &= ~(1 << 7);
+    buff2[0] &= ~(1 << 7);
+    
+    len = a->mv_size;
+    len_diff = (ssize_t) a->mv_size - (ssize_t) b->mv_size;
+    if (len_diff > 0) {
+        len = b->mv_size;
+        len_diff = 1;
+    }
+    
+    diff = memcmp(buff1, buff2, len);
+    return diff ? diff : len_diff<0 ? -1 : len_diff;
+}
+
 static VALUE environment_database(int argc, VALUE *argv, VALUE self) {
         ENVIRONMENT(self, environment);
         if (!active_txn(self))
                 return call_with_transaction(self, self, "database", argc, argv, 0);
-
-        VALUE name, option_hash;
+        
+        ID alternative_sort_id = rb_intern("ignore_first_bit_for_dupsort");
+        VALUE name, option_hash, valternative_sort;
         rb_scan_args(argc, argv, "01:", &name, &option_hash);
 
         int flags = 0;
         if (!NIL_P(option_hash))
+                valternative_sort = rb_hash_delete(option_hash, ID2SYM(alternative_sort_id));
                 rb_hash_foreach(option_hash, database_flags, (VALUE)&flags);
 
         MDB_dbi dbi;
         check(mdb_dbi_open(need_txn(self), NIL_P(name) ? 0 : StringValueCStr(name), flags, &dbi));
-
+        
+        if( (flags & MDB_DUPSORT) && (valternative_sort == Qtrue) ){
+          // printf("changed dupsort compare function\n");
+          check(mdb_set_dupsort(need_txn(self), dbi, metrics_compare));
+        }
+        
         Database* database;
         VALUE vdb = Data_Make_Struct(cDatabase, Database, database_mark, database_deref, database);
         database->dbi = dbi;
