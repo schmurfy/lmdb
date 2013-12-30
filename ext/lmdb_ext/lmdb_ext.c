@@ -847,6 +847,36 @@ static VALUE cursor_put(int argc, VALUE* argv, VALUE self) {
         return Qnil;
 }
 
+// cursor.put_multiple(key, data, 10)
+static VALUE cursor_put_multiple(int argc, VALUE* argv, VALUE self)
+{
+  int i, elsize;
+  MDB_val key;
+  CURSOR(self, cursor);
+  const char *data;
+  
+  VALUE vkey, vval, velsize;
+  rb_scan_args(argc, argv, "3", &vkey, &vval, &velsize);
+  
+  elsize = FIX2INT(velsize);
+  data = RSTRING_PTR(vval);
+  
+  key.mv_data = RSTRING_PTR(vkey);
+  key.mv_size = RSTRING_LEN(vkey);
+  
+  for(i = 0; i < (RSTRING_LEN(vval) / elsize); i++ ){
+    MDB_val val;
+    
+    val.mv_data = (void *) data;
+    val.mv_size = elsize;
+    
+    check(mdb_cursor_put(cursor->cur, &key, &val, 0));
+    data += elsize;
+  }
+  
+  return Qnil;
+}
+
 #define METHOD cursor_delete_flags
 #define FILE "cursor_delete_flags.h"
 #include "flag_parser.h"
@@ -936,6 +966,7 @@ void Init_lmdb_ext() {
         rb_define_method(cCursor, "set", cursor_set, 1);
         rb_define_method(cCursor, "set_range", cursor_set_range, 1);
         rb_define_method(cCursor, "put", cursor_put, -1);
+        rb_define_method(cCursor, "put_multiple", cursor_put_multiple, -1);
         rb_define_method(cCursor, "count", cursor_count, 0);
         rb_define_method(cCursor, "delete", cursor_delete, 0);
 }
