@@ -827,7 +827,7 @@ static VALUE cursor_set_range(VALUE self, VALUE vkey) {
         key.mv_data = StringValuePtr(vkey);
 
         check(mdb_cursor_get(cursor->cur, &key, &value, MDB_SET_RANGE));
-        return rb_assoc_new(rb_str_new(key.mv_data, key.mv_size), rb_str_new(value.mv_data, value.mv_size));
+        return Qnil;
 }
 
 static VALUE cursor_get(VALUE self) {
