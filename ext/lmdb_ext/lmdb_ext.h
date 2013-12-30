@@ -2,6 +2,7 @@
 #define _LMDB_EXT_H
 
 #include "ruby.h"
+#include "ruby/thread.h"
 #include "lmdb.h"
 #include <stdbool.h>
 

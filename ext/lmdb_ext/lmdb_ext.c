@@ -506,8 +506,24 @@ static VALUE database_get(VALUE self, VALUE vkey) {
         return rb_str_new(value.mv_data, value.mv_size);
 }
 
+
+typedef struct {
+  MDB_cursor *c;
+  MDB_val *key, *value;
+  int operation;
+} cursor_get_args_t;
+
+static void *cursor_get_nogvl(void *args)
+{
+  cursor_get_args_t *p = (cursor_get_args_t * )args;
+  int rc = mdb_cursor_get(p->c, p->key, p->value, p->operation);
+  
+  return (void *)(uintptr_t)rc;
+}
+
 static VALUE database_get_bulk_metrics(int argc, VALUE* argv, VALUE vself)
 {
+  cursor_get_args_t cursor_get_args;
   int timepartsize, rc;
   time_t from, to;
   VALUE vkey_prefix, vkey_start, vkey_end, vtimepartsize, vfrom, vto, vhash;
@@ -536,14 +552,22 @@ static VALUE database_get_bulk_metrics(int argc, VALUE* argv, VALUE vself)
   key.mv_size = RSTRING_LEN(vkey_start);
   key.mv_data = StringValuePtr(vkey_start);
   
+  cursor_get_args.c = cur;
+  cursor_get_args.key = &key;
+  cursor_get_args.value = &value;
+  
   // try to put the cursor exactly where we want it
-  rc = mdb_cursor_get(cur, &key, &value, MDB_SET);
+  cursor_get_args.operation = MDB_SET;
+  rc = (int)rb_thread_call_without_gvl(cursor_get_nogvl, &cursor_get_args, RUBY_UBF_IO, NULL);
   if( rc == MDB_NOTFOUND ){
     // printf("set by RANGE (key: %s)\n", key.mv_data);
     // positon the cursor by prefix and scan the while namespace
     key.mv_size = strlen(key_prefix);
     key.mv_data = (void *)key_prefix;
-    check(mdb_cursor_get(cur, &key, &value, MDB_SET_RANGE));
+    
+    cursor_get_args.operation = MDB_SET_RANGE;
+    rc = (int)rb_thread_call_without_gvl(cursor_get_nogvl, &cursor_get_args, RUBY_UBF_IO, NULL);
+    check(rc);
   }
   
   // and now iterate over every records in between
@@ -553,7 +577,9 @@ static VALUE database_get_bulk_metrics(int argc, VALUE* argv, VALUE vself)
     const char *str_key;
     const char *str_time;
     
-    check(mdb_cursor_get(cur, &key, &value, MDB_GET_MULTIPLE));
+    cursor_get_args.operation = MDB_GET_MULTIPLE;
+    rc = (int)rb_thread_call_without_gvl(cursor_get_nogvl, &cursor_get_args, RUBY_UBF_IO, NULL);
+    check(rc);
     
     p = (const uint8_t*) value.mv_data;
     end = (const uint8_t*)(value.mv_data + value.mv_size);
@@ -651,7 +677,9 @@ static VALUE database_get_bulk_metrics(int argc, VALUE* argv, VALUE vself)
     }
     
     // break if there is no keys left
-    if( mdb_cursor_get(cur, &key, &value, MDB_NEXT) == MDB_NOTFOUND ){
+    cursor_get_args.operation = MDB_NEXT;
+    rc = (int)rb_thread_call_without_gvl(cursor_get_nogvl, &cursor_get_args, RUBY_UBF_IO, NULL);
+    if( rc == MDB_NOTFOUND ){
       // printf("breaking at the end of dataset\n");
       break;
     }
@@ -666,7 +694,21 @@ static VALUE database_get_bulk_metrics(int argc, VALUE* argv, VALUE vself)
 #undef METHOD
 #undef FILE
 
+typedef struct {
+  Database *db;
+  MDB_val *key, *value;
+  int flags;
+} put_params_t;
+
+static void *database_put_nogvl(void *args)
+{
+  put_params_t *p = (put_params_t *)args; 
+  int rc = mdb_put(need_txn(p->db->env), p->db->dbi, p->key, p->value, p->flags);  
+  return (void *)(uintptr_t)rc;
+}
+
 static VALUE database_put(int argc, VALUE *argv, VALUE self) {
+        int rc;
         DATABASE(self, database);
         if (!active_txn(database->env))
                 return call_with_transaction(database->env, self, "put", argc, argv, 0);
@@ -686,8 +728,17 @@ static VALUE database_put(int argc, VALUE *argv, VALUE self) {
         key.mv_data = RSTRING_PTR(vkey);
         value.mv_size = RSTRING_LEN(vval);
         value.mv_data = RSTRING_PTR(vval);
-
-        check(mdb_put(need_txn(database->env), database->dbi, &key, &value, flags));
+        
+        put_params_t params;
+        params.db = database;
+        params.key = &key;
+        params.value = &value;
+        params.flags = flags;
+        
+        
+        rc = (int)rb_thread_call_without_gvl(database_put_nogvl, &params, RUBY_UBF_IO, NULL);
+        check(rc);
+        
         return Qnil;
 }
 
