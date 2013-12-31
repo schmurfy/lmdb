@@ -696,14 +696,15 @@ static VALUE database_get_bulk_metrics(int argc, VALUE* argv, VALUE vself)
 
 typedef struct {
   Database *db;
+  MDB_txn *txn;
   MDB_val *key, *value;
   int flags;
 } put_params_t;
 
 static void *database_put_nogvl(void *args)
 {
-  put_params_t *p = (put_params_t *)args; 
-  int rc = mdb_put(need_txn(p->db->env), p->db->dbi, p->key, p->value, p->flags);  
+  put_params_t *p = (put_params_t *)args;
+  int rc = mdb_put(p->txn, p->db->dbi, p->key, p->value, p->flags);
   return (void *)(uintptr_t)rc;
 }
 
@@ -730,11 +731,12 @@ static VALUE database_put(int argc, VALUE *argv, VALUE self) {
         value.mv_data = RSTRING_PTR(vval);
         
         put_params_t params;
+        params.txn = need_txn(database->env);;
+        
         params.db = database;
         params.key = &key;
         params.value = &value;
         params.flags = flags;
-        
         
         rc = (int)rb_thread_call_without_gvl(database_put_nogvl, &params, RUBY_UBF_IO, NULL);
         check(rc);
