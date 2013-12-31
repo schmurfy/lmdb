@@ -399,7 +399,7 @@ static void database_mark(Database* database) {
 
 static int metrics_compare(const MDB_val *a, const MDB_val *b)
 {
-    char buff1[11], buff2[11];
+    char buff1[15], buff2[15];
     int diff;
     ssize_t len_diff;
     unsigned int len;
