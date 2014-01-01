@@ -481,6 +481,13 @@ static VALUE database_drop(VALUE self) {
         return Qnil;
 }
 
+static VALUE database_close(VALUE self) {
+  DATABASE(self, database);
+  ENVIRONMENT(database->env, env);
+  mdb_dbi_close(env->env, database->dbi);
+  return Qnil;
+}
+
 static VALUE database_clear(VALUE self) {
         DATABASE(self, database);
         if (!active_txn(database->env))
@@ -1043,6 +1050,7 @@ void Init_lmdb_ext() {
         rb_define_method(cDatabase, "stat", database_stat, 0);
         rb_define_method(cDatabase, "flags", database_flags_, 0);
         rb_define_method(cDatabase, "drop", database_drop, 0);
+        rb_define_method(cDatabase, "close", database_close, 0);
         rb_define_method(cDatabase, "clear", database_clear, 0);
         rb_define_method(cDatabase, "get", database_get, 1);
         rb_define_method(cDatabase, "get_bulk_metrics", database_get_bulk_metrics, -1);
