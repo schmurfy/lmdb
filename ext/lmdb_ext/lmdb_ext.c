@@ -596,7 +596,7 @@ static VALUE database_get_bulk_metrics(int argc, VALUE* argv, VALUE vself)
     if( str_time != NULL ){
       // printf("\nscanning %*s (partsize: %d) ...\n", key.mv_size - 1, key.mv_data, timepartsize);
       time_t row_start_time = atol(str_time + 1);
-      struct tm *tm_timestamp;
+      struct tm tm_timestamp;
       // VALUE vkey = rb_str_new(key.mv_data, key.mv_size);
       
       // extract every points stored
@@ -632,8 +632,8 @@ static VALUE database_get_bulk_metrics(int argc, VALUE* argv, VALUE vself)
         timeoff += row_start_time;
         
         if( (timeoff >= from) && (timeoff <= to)  ){
-          tm_timestamp = gmtime(&timeoff);
-          len = strftime(buffer, sizeof(buffer) - 1, "%Y-%m-%dT%H:%M:%SZ", tm_timestamp);
+          gmtime_r(&timeoff, &tm_timestamp);
+          len = strftime(buffer, sizeof(buffer) - 1, "%Y-%m-%dT%H:%M:%SZ", &tm_timestamp);
           voffset = rb_str_new(buffer, len);
           
           
